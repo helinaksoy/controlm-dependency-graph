@@ -1,0 +1,5 @@
+# Required for Neo4j pipeline
+neo4j>=5.0.0
+# Required for web UI
+flask>=3.0.0
+flask-cors>=4.0.0

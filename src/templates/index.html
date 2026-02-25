@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Control-M Dependency Graph</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <!-- Cytoscape.js + dagre hierarchical layout -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+</head>
+<body>
+
+<!-- ===== TOP TOOLBAR ===== -->
+<header class="toolbar">
+  <div class="toolbar-left">
+    <span class="toolbar-logo">&#9670;</span>
+    <span class="toolbar-title">Control-M Dependency Viewer</span>
+  </div>
+  <div class="toolbar-center">
+    <div class="search-wrap">
+      <input id="searchInput" type="text" placeholder="Search jobs, folders, programs…" autocomplete="off" />
+      <button id="searchBtn" title="Search">&#128269;</button>
+    </div>
+    <div id="searchResults" class="search-dropdown hidden"></div>
+  </div>
+  <div class="toolbar-right">
+    <div class="stat-chip" id="statNodes">— nodes</div>
+    <div class="stat-chip" id="statEdges">— edges</div>
+    <button class="toolbar-btn" id="btnFitView" title="Fit graph to view">&#8859;</button>
+    <button class="toolbar-btn" id="btnZoomIn" title="Zoom in">&#43;</button>
+    <button class="toolbar-btn" id="btnZoomOut" title="Zoom out">&#8722;</button>
+    <button class="toolbar-btn" id="btnResetLayout" title="Reset layout">&#8635;</button>
+  </div>
+</header>
+
+<!-- ===== MAIN LAYOUT ===== -->
+<div class="layout">
+
+  <!-- LEFT SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span>Navigation</span>
+      <button class="collapse-btn" id="sidebarToggle" title="Collapse sidebar">&#9664;</button>
+    </div>
+    <div class="sidebar-multiselect-hint">Ctrl+tıklama ile birden fazla seçim</div>
+    <div class="sidebar-body" id="sidebarBody">
+      <div id="treeContainer">
+        <div class="loading-msg">Loading tree…</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CANVAS -->
+  <main class="canvas-wrap" id="canvasWrap">
+    <div id="canvasBreadcrumb" class="breadcrumb">
+      <button id="btnClearView" class="clear-view-btn hidden" title="Seçimi temizle">&#10005; Temizle</button>
+    </div>
+    <div id="cy"></div>
+    <div id="canvasEmpty" class="canvas-empty">
+      <div class="canvas-empty-icon">&#9671;</div>
+      <p>Select an Application, Sub-Application, or Folder<br>from the left panel to visualise dependencies.</p>
+    </div>
+    <!-- Legend -->
+    <div class="legend" id="legend">
+      <div class="legend-title">Legend</div>
+      <div class="legend-item"><span class="dot dot-ghost"></span>External Job</div>
+      <div class="legend-item"><span class="dot dot-pl1"></span>PL/I Program</div>
+      <div class="legend-item"><span class="dot dot-db"></span>DB Table</div>
+      <div class="legend-item"><span class="dot dot-dep"></span>Dependency</div>
+    </div>
+  </main>
+
+  <!-- RIGHT PANEL: Details / PL/I Chain / AI Analizi tabs -->
+  <aside class="details-panel" id="detailsPanel">
+
+    <!-- Drag-to-resize handle on left edge -->
+    <div class="rpanel-resize-handle" id="rpanelResizeHandle"></div>
+
+    <!-- Tab bar -->
+    <div class="rpanel-tabs">
+      <button class="rpanel-tab active" id="tabDetails"  data-tab="details">Details</button>
+      <button class="rpanel-tab"        id="tabPl1"      data-tab="pl1">&#9096; PL/I Chain</button>
+      <button class="rpanel-tab"        id="tabAi"       data-tab="ai"> AI Analizi</button>
+      <button class="close-btn rpanel-close" id="detailsClose" title="Kapat">&#10005;</button>
+    </div>
+
+    <!-- ── TAB: Details ── -->
+    <div class="rpanel-body" id="rpanelDetails">
+      <div class="details-body" id="detailsBody">
+        <div class="details-placeholder">Click a node on the graph to view details.</div>
+      </div>
+      <div class="details-footer" id="detailsFooter"></div>
+    </div>
+
+    <!-- ── TAB: PL/I Chain ── -->
+    <div class="rpanel-body hidden" id="rpanelPl1">
+      <div class="pl1-tab-header">
+        <div>
+          <div class="pl1-panel-title" id="pl1PanelTitle">PL/I Chain</div>
+          <div class="pl1-panel-stats" id="pl1PanelStats"></div>
+        </div>
+        <div class="pl1-panel-toolbar">
+          <button class="pl1-toolbar-btn" id="pl1BtnFit"     title="Fit to view">&#8859;</button>
+          <button class="pl1-toolbar-btn" id="pl1BtnZoomIn"  title="Zoom in">&#43;</button>
+          <button class="pl1-toolbar-btn" id="pl1BtnZoomOut" title="Zoom out">&#8722;</button>
+        </div>
+      </div>
+      <div id="cy-pl1" class="pl1-canvas"></div>
+      <div class="pl1-legend">
+        <div class="pl1-legend-section">
+          <div class="pl1-legend-section-title">Düğümler</div>
+          <span class="pl1-leg-item">
+            <span class="pl1-leg-shape pl1-leg-rect" style="background:#2d1f0e;border-color:#9a6700;"></span>
+            <span class="pl1-leg-label">PL/I Program <span class="pl1-leg-hint">(kaynak dosya)</span></span>
+          </span>
+          <span class="pl1-leg-item">
+            <span class="pl1-leg-shape pl1-leg-diamond" style="background:#1e0f40;border-color:#8957e5;"></span>
+            <span class="pl1-leg-label">Include Dosyası <span class="pl1-leg-hint">(%INCLUDE ile çekilen)</span></span>
+          </span>
+          <span class="pl1-leg-item">
+            <span class="pl1-leg-shape pl1-leg-barrel" style="background:#1e1140;border-color:#6e40c9;"></span>
+            <span class="pl1-leg-label">DB Tablosu <span class="pl1-leg-hint">(veritabanı erişimi)</span></span>
+          </span>
+          <span class="pl1-leg-item">
+            <span class="pl1-leg-shape pl1-leg-rect" style="background:#1f6feb;border-color:#79b8ff;"></span>
+            <span class="pl1-leg-label">Control-M Job <span class="pl1-leg-hint">(başlangıç)</span></span>
+          </span>
+        </div>
+        <div class="pl1-legend-sep"></div>
+        <div class="pl1-legend-section">
+          <div class="pl1-legend-section-title">Bağlantılar</div>
+          <span class="pl1-leg-item">
+            <span class="pl1-leg-edge" style="background:#238636;"></span>
+            <span class="pl1-leg-label">Job → PL/I çalıştırır</span>
+          </span>
+          <span class="pl1-leg-item">
+            <span class="pl1-leg-edge" style="background:#9a6700;"></span>
+            <span class="pl1-leg-label">PL/I → PL/I çağırır</span>
+          </span>
+          <span class="pl1-leg-item">
+            <span class="pl1-leg-edge" style="background:#6e40c9;"></span>
+            <span class="pl1-leg-label">PL/I → DB erişir</span>
+          </span>
+          <span class="pl1-leg-item">
+            <span class="pl1-leg-edge pl1-leg-edge-dashed" style="background:transparent;border-top-color:#8957e5;"></span>
+            <span class="pl1-leg-label">PL/I → Include çeker</span>
+          </span>
+        </div>
+      </div>
+      <div id="pl1NodeBar" class="pl1-node-bar hidden">
+        <div class="pl1-node-bar-info">
+          <span class="pl1-node-bar-icon">&#9096;</span>
+          <span id="pl1NodeBarName"></span>
+        </div>
+        <button class="ai-btn" id="pl1NodeBarAiBtn">AI ile Analiz Et</button>
+      </div>
+    </div>
+    <div class="rpanel-body hidden" id="rpanelAi">
+      <div class="ai-tab-header">
+        <div>
+          <div class="ai-panel-title" id="aiPanelTitle">AI Analizi</div>
+          <div class="ai-panel-subtitle" id="aiPanelSubtitle"></div>
+        </div>
+      </div>
+      <div id="ai-spinner" class="ai-spinner hidden">
+        <div class="ai-spinner-icon"></div>
+        <span>LLM analiz ediyor&hellip;</span>
+      </div>
+      <div id="ai-output" class="ai-output"></div>
+    </div>
+
+  </aside>
+
+</div>
+
+<!-- ===== DRILL-DOWN TOAST ===== -->
+<div id="drillToast" class="drill-toast hidden">
+  <span id="drillToastText"></span>
+  <button id="drillToastClose">&#10005;</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# Secrets
+config.json
+
+# Generated output
+output/dependency_graph.json
+
+# Dev artifacts
+archive/
+llm_test/
+
+# Python
+*.pyc
+*.pyo
+__pycache__/
+.venv/
+venv/

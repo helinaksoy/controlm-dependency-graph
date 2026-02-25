@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy this file to config.json and fill in your values.",
+  "controlm_xml":  "C:/AVC/Workspace/GlobalControlMExport_PROD.xml",
+  "code_dir":      "C:/AVC/Workspace/v250",
+  "neo4j_uri":     "neo4j://127.0.0.1:7687",
+  "neo4j_user":    "neo4j",
+  "neo4j_password": "<YOUR_NEO4J_PASSWORD>",
+  "output":        "output/dependency_graph.json",
+  "llm_host_url":  "https://<YOUR_LLM_PROXY>/v1",
+  "llm_api_key":   "<YOUR_API_KEY>",
+  "llm_model":     "<YOUR_MODEL_NAME>"
+}
