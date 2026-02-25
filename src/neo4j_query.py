@@ -18,6 +18,7 @@ REL_TYPE_TO_EDGE = {
     "CALLS": "calls",
     "INCLUDES": "includes",
     "DB_ACCESS": "db_access",
+    "USES_SQL": "uses_sql",
     "DEPENDS_ON": "depends",
 }
 

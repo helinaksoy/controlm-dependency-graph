@@ -212,7 +212,7 @@ def _add_drill_down(g, job_id: str, nodes_out: dict, edges_out: list, seen: set)
     Uses iterative BFS instead of recursion to avoid stack overflow on large call graphs.
     Only follows: executes (Job→PL1), calls (PL1→PL1, max 2 hops), db_access (PL1→DB), includes (PL1→Include).
     """
-    _FOLLOW_TYPES = ("executes", "calls_program", "calls", "db_access", "includes")
+    _FOLLOW_TYPES = ("executes", "calls_program", "calls", "db_access", "includes", "uses_sql")
     _MAX_CALL_DEPTH = 2   # PL1→PL1 call depth limit to prevent explosion
 
     # BFS queue: (node_id, depth)
@@ -266,7 +266,7 @@ def _add_drill_down(g, job_id: str, nodes_out: dict, edges_out: list, seen: set)
             target_type = target_node.get("type", "")
             if target_type == "pl1_program" and depth < _MAX_CALL_DEPTH:
                 queue.append((target_id, depth + 1))
-            elif target_type in ("db_table", "include_file"):
+            elif target_type in ("db_table", "include_file", "sql_file"):
                 pass  # leaf nodes — no further traversal
 
 
@@ -545,6 +545,7 @@ def api_pl1_chain(node_id: str):
     pl1_count     = sum(1 for n in nodes_out.values() if n["data"].get("type") == "pl1_program")
     db_count      = sum(1 for n in nodes_out.values() if n["data"].get("type") == "db_table")
     include_count = sum(1 for n in nodes_out.values() if n["data"].get("type") == "include_file")
+    sql_count     = sum(1 for n in nodes_out.values() if n["data"].get("type") == "sql_file")
 
     result = {
         "nodes": list(nodes_out.values()),
@@ -553,6 +554,7 @@ def api_pl1_chain(node_id: str):
             "pl1_count":     pl1_count,
             "db_count":      db_count,
             "include_count": include_count,
+            "sql_count":     sql_count,
         },
     }
 

@@ -48,6 +48,8 @@ def apply_config_defaults(args):
         args.jcl_dir = cfg.get("jcl_dir")
     if args.pl1_dir is None:
         args.pl1_dir = cfg.get("pl1_dir")
+    if getattr(args, "sql_dir", None) is None:
+        setattr(args, "sql_dir", cfg.get("sql_dir"))
     if args.output is None:
         args.output = cfg.get("output")
     if getattr(args, "neo4j_uri", None) is None:
@@ -111,7 +113,14 @@ Configuration:
         default=r'C:\AVC\Workspace\v250',
         help='Directory containing PL/I files (default: C:\\AVC\\Workspace\\v250)'
     )
-    
+
+    parser.add_argument(
+        '--sql-dir',
+        metavar='DIR',
+        default=None,
+        help='Directory containing SQL files (default: same as --pl1-dir)'
+    )
+
     # Configuration
     parser.add_argument(
         '--config-dir',
@@ -349,7 +358,8 @@ def main():
         graph = builder.build_graph(
             controlm_xml=args.controlm,
             jcl_directory=args.jcl_dir,
-            pl1_directory=args.pl1_dir
+            pl1_directory=args.pl1_dir,
+            sql_directory=getattr(args, 'sql_dir', None)
         )
 
         # Pipeline 1 (primary): Neo4j

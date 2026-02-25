@@ -14,10 +14,26 @@ from pathlib import Path
 from typing import Dict, List, Set, Optional
 from collections import defaultdict
 
+import re
+
 from parsers.controlm_parser import ControlMParser
 from parsers.jcl_parser import JCLParser
 from parsers.pl1_parser import PL1Parser
+from parsers.sql_parser import SQLParser
 
+# Pattern for ref_program extraction: token after FOR/FUER in description
+_REF_PROG_PATTERN = re.compile(r'\bF(?:UE?|ÜE?)R\s+([A-Z][A-Z0-9]{4,})\b', re.IGNORECASE)
+_REF_NOISE = {
+    'DATASET', 'DATASETS', 'FROM', 'INTO', 'WITH', 'AND', 'THE', 'FOR', 'FUER',
+    'NACH', 'VON', 'AUS', 'DER', 'DIE', 'DAS', 'ALL', 'ALLE', 'TABLE', 'TABLES',
+    'FILE', 'FILES', 'QUERY', 'DATA', 'LIST',
+}
+# Pattern for dataset/table tokens in description right-side (UNLOAD X, LOAD X, etc.)
+_DATASET_KW_PATTERN = re.compile(
+    r'\b(?:UNLOAD|LOAD|RELOAD|INSERT\s+INTO|DELETE\s+FROM|SELECT\s+FROM|UPDATE|INTO|OF|IN)\s+([A-Z][A-Z0-9_]{2,})\b',
+    re.IGNORECASE,
+)
+_PAREN_TOKEN_PATTERN = re.compile(r'\(([A-Z][A-Z0-9_]{3,})\)')
 
 class DependencyGraphBuilder:
     """Builds a unified multi-level dependency graph"""
@@ -35,6 +51,7 @@ class DependencyGraphBuilder:
         self.controlm_parser = ControlMParser()
         self.jcl_parser = JCLParser()
         self.pl1_parser = PL1Parser()
+        self.sql_parser = SQLParser()
         
         # Load configuration
         self.path_mappings = self._load_config('path_mappings.json')
@@ -46,6 +63,8 @@ class DependencyGraphBuilder:
         self.pl1_data = {}  # program_name -> parsed PL/I
         self.pl1_file_index = {}  # filename_stem.upper() -> program_name (fallback lookup)
         self.inc_file_index = {}   # filename_stem.upper() -> file_path (include files in v250)
+        self.sql_data = {}         # program_name (stem.upper()) -> sql file info
+        self.sql_file_index = {}   # program_name (stem.upper()) -> file_path
         
         # Unified dependency graph
         self.graph = {
@@ -74,10 +93,11 @@ class DependencyGraphBuilder:
             print(f"Error loading {filename}: {e}")
             return {}
     
-    def build_graph(self, 
+    def build_graph(self,
                    controlm_xml: Optional[str] = None,
                    jcl_directory: Optional[str] = None,
-                   pl1_directory: Optional[str] = None) -> Dict:
+                   pl1_directory: Optional[str] = None,
+                   sql_directory: Optional[str] = None) -> Dict:
         """
         Build the complete dependency graph.
         
@@ -99,9 +119,10 @@ class DependencyGraphBuilder:
             self.controlm_data = self.controlm_parser.parse_file(controlm_xml)
             self._add_controlm_nodes()
 
-        # Step 2: Parse PL/I files
-        print("\n[2/3] Parsing PL/I files...")
+        # Step 2: Parse PL/I and SQL files
+        print("\n[2/3] Parsing source files...")
         self._parse_pl1_files(pl1_directory)
+        self._parse_sql_files(sql_directory or pl1_directory)
 
         # Step 3: Build relationships
         print("\n[3/3] Building relationships...")
@@ -369,7 +390,27 @@ class DependencyGraphBuilder:
         print(f"  [OK] Found {len(all_tables)} unique database tables")
         if self.missing_programs:
             print(f"  [WARN] Missing {len(self.missing_programs)} PL/I programs")
-    
+
+    def _parse_sql_files(self, sql_directory: Optional[str]):
+        """Find all *.sql files under sql_directory and create SQL:: nodes."""
+        if not sql_directory:
+            return
+        self.sql_data = self.sql_parser.parse_directory(sql_directory)
+        self.sql_file_index = {
+            name: info['file_path']
+            for name, info in self.sql_data.items()
+        }
+        for prog_name, info in self.sql_data.items():
+            node_id = f"SQL::{prog_name}"
+            self.graph['nodes'][node_id] = {
+                'id': node_id,
+                'type': 'sql_file',
+                'name': prog_name,
+                'file_path': info.get('file_path', ''),
+                'line_count': info.get('line_count', 0),
+            }
+        print(f"  [OK] Found {len(self.sql_data)} SQL files in {sql_directory}")
+
     @staticmethod
     def _extract_desc_program(description: str) -> str:
         """Extract program name from description: 'PROGNAME = ...' → 'PROGNAME'"""
@@ -379,6 +420,38 @@ class DependencyGraphBuilder:
         if candidate and ' ' not in candidate:
             return candidate.upper()
         return ''
+
+    @staticmethod
+    def _extract_ref_program(description: str, desc_program: str) -> str:
+        """Extract ref_program: token after FOR/FUER on right of '=' in description."""
+        if not description:
+            return ''
+        right = description.split('=', 1)[1] if '=' in description else description
+        m = _REF_PROG_PATTERN.search(right)
+        if m:
+            token = m.group(1).upper()
+            if token not in _REF_NOISE and token != desc_program.upper():
+                return token
+        return ''
+
+    @staticmethod
+    def _extract_ref_datasets(description: str) -> list:
+        """
+        Extract dataset/file names from the right side of '=' in description.
+        Matches tokens after keywords like UNLOAD, LOAD, INSERT INTO, etc.
+        Example: 'HPUNL = DB2 UNLOAD VERVEAT' → ['VERVEAT']
+        """
+        right = description.split('=', 1)[1] if '=' in description else description
+        found = set()
+        for m in _DATASET_KW_PATTERN.finditer(right):
+            t = m.group(1).upper()
+            if t not in _REF_NOISE:
+                found.add(t)
+        for m in _PAREN_TOKEN_PATTERN.finditer(right):
+            t = m.group(1).upper()
+            if t not in _REF_NOISE:
+                found.add(t)
+        return list(found)
 
     def _link_controlm_to_pl1_direct(self):
         """Link Control-M jobs directly to PL/I programs via DESCRIPTION field."""
@@ -406,6 +479,72 @@ class DependencyGraphBuilder:
                 count += 1
         print(f"  [OK] Linked {count} Control-M jobs directly to PL/I programs")
 
+    def _link_controlm_to_sql(self):
+        """Link Control-M jobs to SQL files via desc_program and ref_program in DESCRIPTION."""
+        if not self.sql_file_index:
+            return
+        _SKIP = {
+            'DUMMY', 'MFCMDLNE', 'SCRIPT', 'REXX', 'IEFBR14', 'FTP', 'FTPLS',
+            'IEBGENER', 'ALLOC', 'CONDCHK', 'BACKUP', 'UNLOAD', 'DB2UTIL',
+            'DSNTEP2', 'IKJEFT01', 'RZWRITER', 'IOACND', 'DB2LOAD',
+        }
+        seen: set = set()
+        count = 0
+        for jobname, job_info in self.controlm_data.get('jobs', {}).items():
+            description = job_info.get('description', '')
+            desc_prog = self._extract_desc_program(description)
+            ref_prog  = self._extract_ref_program(description, desc_prog)
+            ref_datasets = self._extract_ref_datasets(description)
+            # Check desc_program, ref_program AND all dataset tokens
+            candidates = [t for t in [desc_prog, ref_prog] + ref_datasets if t]
+            for prog in candidates:
+                if prog in _SKIP:
+                    continue
+                if prog in self.sql_file_index:
+                    key = (f"CONTROLM::{jobname}", f"SQL::{prog}")
+                    if key not in seen:
+                        seen.add(key)
+                        self.graph['edges'].append({
+                            'from': key[0],
+                            'to': key[1],
+                            'type': 'uses_sql',
+                            'label': 'uses_sql',
+                        })
+                        count += 1
+        print(f"  [OK] Linked {count} Control-M jobs to SQL files")
+
+    def _link_pl1_to_sql(self):
+        """Link PL/I programs to SQL files via unresolved CALL or %INCLUDE."""
+        if not self.sql_file_index:
+            return
+        count = 0
+        for program_name, pl1_info in self.pl1_data.items():
+            # CALL: only if not already resolved as a PL/I program
+            for called in pl1_info.get('calls', []):
+                if called in self.pl1_data or self.pl1_file_index.get(called):
+                    continue
+                if called in self.sql_file_index:
+                    self.graph['edges'].append({
+                        'from': f"PL1::{program_name}",
+                        'to': f"SQL::{called}",
+                        'type': 'uses_sql',
+                        'label': 'CALL→SQL',
+                    })
+                    count += 1
+            # %INCLUDE: only if not already resolved as a .inc file
+            for inc in pl1_info.get('includes', []):
+                if inc in self.inc_file_index:
+                    continue
+                if inc in self.sql_file_index:
+                    self.graph['edges'].append({
+                        'from': f"PL1::{program_name}",
+                        'to': f"SQL::{inc}",
+                        'type': 'uses_sql',
+                        'label': '%INCLUDE→SQL',
+                    })
+                    count += 1
+        print(f"  [OK] Linked {count} PL/I programs to SQL files")
+
     def _build_relationships(self):
         """Build all dependency relationships"""
         edge_count = len(self.graph['edges'])
@@ -413,13 +552,19 @@ class DependencyGraphBuilder:
         # 1. Control-M Job → PL/I (direct via description)
         self._link_controlm_to_pl1_direct()
 
-        # 2. PL/I → PL/I (CALL dependencies)
+        # 2. Control-M Job → SQL file (via desc_program / ref_program)
+        self._link_controlm_to_sql()
+
+        # 3. PL/I → PL/I (CALL dependencies)
         self._link_pl1_to_pl1()
 
-        # 3. PL/I → Include Files
+        # 4. PL/I → SQL file (via unresolved CALL or %INCLUDE)
+        self._link_pl1_to_sql()
+
+        # 5. PL/I → Include Files
         self._link_pl1_to_includes()
 
-        # 4. PL/I → Database Tables
+        # 6. PL/I → Database Tables
         self._link_pl1_to_db()
 
         new_edges = len(self.graph['edges']) - edge_count

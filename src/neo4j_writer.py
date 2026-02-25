@@ -17,6 +17,7 @@ EDGE_TYPE_TO_REL = {
     "calls": "CALLS",
     "includes": "INCLUDES",
     "db_access": "DB_ACCESS",
+    "uses_sql": "USES_SQL",
 }
 
 # Node type (graph) -> Neo4j secondary label (PascalCase)
@@ -30,6 +31,7 @@ NODE_TYPE_TO_LABEL = {
     "pl1_program": "PL1Program",
     "db_table": "DBTable",
     "include_file": "IncludeFile",
+    "sql_file": "SQLFile",
 }
 
 DEFAULT_NODE_BATCH = 5000

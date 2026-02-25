@@ -151,6 +151,16 @@ function buildCyStyle() {
         'color': '#f0a742',
       }
     },
+    // SQL File
+    {
+      selector: 'node[type="sql_file"]',
+      style: {
+        'background-color': '#0e2d1f',
+        'border-color': '#1a7a4a',
+        'color': '#3ddc84',
+        'shape': 'round-rectangle',
+      }
+    },
     // Include File
     {
       selector: 'node[type="include_file"]',
@@ -275,6 +285,10 @@ const TREE_ICONS = {
   sub_application: '&#9671;',
   folder:          '&#128193;',
   controlm_job:    '&#9632;',
+  pl1_program:     '&#128196;',
+  sql_file:        '&#128202;',
+  db_table:        '&#128447;',
+  include_file:    '&#9671;',
 };
 
 function buildTreeNode(node, depth) {
@@ -808,7 +822,7 @@ function buildDetailsHTML(data) {
 
   // Action buttons — inline at end of details body
   if (type === 'controlm_job') {
-    html += `<button class="drill-btn" data-node-id="${escHtml(node.id)}" data-node-name="${escHtml(node.name || node.id)}">&#9096; Show PL/I Chain</button>`;
+    html += `<button class="drill-btn" data-node-id="${escHtml(node.id)}" data-node-name="${escHtml(node.name || node.id)}">&#9096; Show Dependency Chain</button>`;
   }
   if (type === 'pl1_program') {
     html += `<button class="drill-btn" data-node-id="${escHtml(node.id)}" data-node-name="${escHtml(node.name || node.id)}">&#9096; Show Dependencies</button>`;
@@ -847,7 +861,7 @@ function initDetailsClose() {
 function showDrillToast(jobCount) {
   const toast = document.getElementById('drillToast');
   const text  = document.getElementById('drillToastText');
-  text.textContent = `${jobCount} jobs loaded. Click a job → "Show PL/I Chain" to explore dependencies.`;
+  text.textContent = `${jobCount} jobs loaded. Click a job → "Show Dependency Chain" to explore dependencies.`;
   toast.classList.remove('hidden');
   if (showDrillToast._timer) clearTimeout(showDrillToast._timer);
   showDrillToast._timer = setTimeout(() => toast.classList.add('hidden'), 6000);
@@ -1020,6 +1034,12 @@ function renderSearchResults(items, container) {
         selectedScopes = [{ scope: 'app', name: item.name, rowEl: null }];
         currentDrill = null;
         loadMultiGraph();
+      } else if (item.type === 'pl1_program' || item.type === 'sql_file') {
+        // Open the dependency chain panel directly for PL/I and SQL nodes
+        openPl1Panel(item.id, item.name);
+      } else if (item.type === 'db_table') {
+        // Show node details panel for DB tables
+        showDetails(item.id);
       }
     });
 
@@ -1071,6 +1091,16 @@ function buildPl1CyStyle() {
         'background-color': '#2d1f0e',
         'border-color': '#9a6700',
         'color': '#f0a742',
+      }
+    },
+    // SQL File
+    {
+      selector: 'node[type="sql_file"]',
+      style: {
+        'background-color': '#0e2d1f',
+        'border-color': '#1a7a4a',
+        'color': '#3ddc84',
+        'shape': 'round-rectangle',
       }
     },
     // Include file
@@ -1131,7 +1161,7 @@ async function openPl1Panel(nodeId, title) {
   const statsEl = document.getElementById('pl1PanelStats');
 
   panel.classList.add('open');
-  titleEl.textContent = title || 'PL/I Chain';
+  titleEl.textContent = title || 'Dependency Chain';
   statsEl.textContent = 'Loading…';
   document.getElementById('pl1NodeBar').classList.add('hidden');
   switchRpanelTab('pl1');
@@ -1156,12 +1186,13 @@ async function openPl1Panel(nodeId, title) {
     const s = data.stats || {};
     const parts = [];
     if (s.pl1_count     > 0) parts.push(`${s.pl1_count} PL/I`);
+    if (s.sql_count     > 0) parts.push(`${s.sql_count} SQL`);
     if (s.db_count      > 0) parts.push(`${s.db_count} DB tables`);
     if (s.include_count > 0) parts.push(`${s.include_count} includes`);
-    statsEl.textContent = parts.length ? parts.join(' · ') : 'No chain found';
+    statsEl.textContent = parts.length ? parts.join(' · ') : 'No dependencies found';
 
     if (!data.nodes || data.nodes.length === 0) {
-      canvas.innerHTML = '<div class="pl1-panel-loading">No PL/I dependencies found.</div>';
+      canvas.innerHTML = '<div class="pl1-panel-loading">No dependencies found.</div>';
       return;
     }
 
@@ -1206,7 +1237,14 @@ async function openPl1Panel(nodeId, title) {
         barBtn.dataset.nodeId   = ndData.id;
         barBtn.dataset.nodeName = ndData.name || ndData.id;
         bar.classList.remove('hidden');
+      } else if (ndData.type === 'sql_file') {
+        barName.textContent = `📄 SQL: ${ndData.name || ndData.id}`;
+        barBtn.dataset.nodeId   = ndData.id;
+        barBtn.dataset.nodeName = ndData.name || ndData.id;
+        barBtn.style.display = 'none';
+        bar.classList.remove('hidden');
       } else {
+        barBtn.style.display = '';
         bar.classList.add('hidden');
       }
     });
